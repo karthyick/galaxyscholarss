@@ -19,11 +19,14 @@ class _LearnersPageState extends State<LearnersPage> {
   final GeminiService _geminiService = GeminiService();
 
   Map<String, List<String>> subjectsAndTopics = {};
+  Map<String, List<String>> topicsAndSubtopics = {};
   String? selectedSubject;
   String? selectedTopic;
+  String? selectedSubtopic;
 
   bool isLoadingSubjects = true;
   bool isLoadingTopics = false;
+  bool isLoadingSubtopics = false;
   bool isLoadingContent = false;
 
   String? error;
@@ -83,6 +86,7 @@ class _LearnersPageState extends State<LearnersPage> {
 
       setState(() {
         subjectsAndTopics[subject] = fetchedTopics;
+        topicsAndSubtopics.clear(); // Reset subtopics
       });
     } catch (e) {
       setState(() {
@@ -95,9 +99,40 @@ class _LearnersPageState extends State<LearnersPage> {
     }
   }
 
+  /// Fetch subtopics for a given topic
+  Future<void> _fetchSubtopics(String topic) async {
+    try {
+      setState(() {
+        isLoadingSubtopics = true;
+        error = null;
+      });
+
+      final fetchedSubtopics = await _geminiService.fetchSubtopics(
+        board: widget.board,
+        standard: widget.standard,
+        subject: selectedSubject!,
+        topic: topic,
+      );
+
+      setState(() {
+        topicsAndSubtopics[topic] = fetchedSubtopics;
+      });
+    } catch (e) {
+      setState(() {
+        error = e.toString();
+      });
+    } finally {
+      setState(() {
+        isLoadingSubtopics = false;
+      });
+    }
+  }
+
   /// Fetch content for the six sections
   Future<void> _fetchContent() async {
-    if (selectedSubject == null || selectedTopic == null) return;
+    if (selectedSubject == null ||
+        selectedTopic == null ||
+        selectedSubtopic == null) return;
 
     try {
       setState(() {
@@ -110,6 +145,7 @@ class _LearnersPageState extends State<LearnersPage> {
         standard: widget.standard,
         subject: selectedSubject!,
         topic: selectedTopic!,
+        subtopic: selectedSubtopic!,
       );
 
       setState(() {
@@ -188,6 +224,7 @@ class _LearnersPageState extends State<LearnersPage> {
                 setState(() {
                   selectedSubject = value;
                   selectedTopic = null; // Reset topic
+                  selectedSubtopic = null; // Reset subtopic
                   contentSections.clear(); // Clear previous content
                 });
                 if (value != null) {
@@ -214,6 +251,33 @@ class _LearnersPageState extends State<LearnersPage> {
               onChanged: (value) {
                 setState(() {
                   selectedTopic = value;
+                  selectedSubtopic = null; // Reset subtopic
+                  contentSections.clear(); // Clear previous content
+                });
+                if (value != null) {
+                  _fetchSubtopics(value);
+                }
+              },
+            ),
+          ),
+          const SizedBox(width: 16),
+          Expanded(
+            flex: 1,
+            child: DropdownButton<String>(
+              isExpanded: true,
+              hint: const Text('Select Subtopic'),
+              value: selectedSubtopic,
+              items: (selectedTopic != null
+                      ? topicsAndSubtopics[selectedTopic] ?? []
+                      : [])
+                  .map((subtopic) => DropdownMenuItem<String>(
+                        value: subtopic,
+                        child: Text(subtopic),
+                      ))
+                  .toList(),
+              onChanged: (value) {
+                setState(() {
+                  selectedSubtopic = value;
                   contentSections.clear(); // Clear previous content
                 });
                 if (value != null) {
@@ -228,6 +292,7 @@ class _LearnersPageState extends State<LearnersPage> {
               setState(() {
                 selectedSubject = null;
                 selectedTopic = null;
+                selectedSubtopic = null;
                 contentSections.clear();
               });
             },
@@ -239,10 +304,10 @@ class _LearnersPageState extends State<LearnersPage> {
   }
 
   Widget _buildBody(BuildContext context) {
-    if (selectedTopic == null) {
+    if (selectedSubtopic == null) {
       return const Center(
         child: Text(
-          'Please select a subject and topic.',
+          'Please select a subject, topic, and subtopic.',
           style: TextStyle(fontSize: 16),
         ),
       );
@@ -255,7 +320,7 @@ class _LearnersPageState extends State<LearnersPage> {
     if (contentSections.isEmpty) {
       return const Center(
         child: Text(
-          'No content available. Select a subject and topic.',
+          'No content available. Select a subject, topic, and subtopic.',
           style: TextStyle(fontSize: 16),
         ),
       );
@@ -264,7 +329,7 @@ class _LearnersPageState extends State<LearnersPage> {
     final sections = [
       "Official Definition",
       "Layman Explanation",
-      "Inventor",
+      "History",
       "Current Innovations",
       "Puzzle Activity",
       "Diagram",
@@ -309,6 +374,71 @@ class _LearnersPageState extends State<LearnersPage> {
     );
   }
 
+  TextSpan _parseHighlightedContent(String content) {
+    final RegExp exp = RegExp(r'\*\*(.*?)\*\*'); // Match bold text
+    final List<String> additionalKeys = [
+      'sources',
+      'example',
+      'activity_types',
+      'diagram_elements',
+      'timeline',
+      'people',
+    ];
+
+    List<TextSpan> spans = [];
+    int lastMatchEnd = 0;
+
+    // Parse the main content for bold text
+    final matches = exp.allMatches(content);
+    for (var match in matches) {
+      if (match.start > lastMatchEnd) {
+        spans.add(TextSpan(
+          text: content.substring(lastMatchEnd, match.start),
+        ));
+      }
+
+      spans.add(TextSpan(
+        text: match.group(1),
+        style: const TextStyle(fontWeight: FontWeight.bold, color: Colors.blue),
+      ));
+
+      lastMatchEnd = match.end;
+    }
+
+    if (lastMatchEnd < content.length) {
+      spans.add(TextSpan(
+        text: content.substring(lastMatchEnd),
+      ));
+    }
+
+    // Dynamically handle additional fields like sources, example, etc.
+    for (var key in additionalKeys) {
+      final keyExp = RegExp('$key:\\s*\\[(.*?)\\]',
+          dotAll: true); // Match key and its list
+      final match = keyExp.firstMatch(content);
+
+      if (match != null) {
+        final String rawValue = match.group(1) ?? '';
+        final List<String> values =
+            rawValue.split(',').map((e) => e.trim()).toList();
+
+        spans.add(TextSpan(
+          text: '\n\n${key[0].toUpperCase()}${key.substring(1)}:\n',
+          style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 16),
+        ));
+
+        for (var value in values) {
+          spans.add(TextSpan(
+            text: '- $value\n',
+            style: const TextStyle(fontStyle: FontStyle.italic, fontSize: 14),
+          ));
+        }
+      }
+    }
+
+    return TextSpan(children: spans);
+  }
+
   Widget _buildBottomRow(BuildContext context) {
     return Container(
       color: Colors.grey[200],
@@ -338,40 +468,5 @@ class _LearnersPageState extends State<LearnersPage> {
         ],
       ),
     );
-  }
-
-  TextSpan _parseHighlightedContent(String content) {
-    final RegExp exp = RegExp(r'\*\*(.*?)\*\*');
-    final matches = exp.allMatches(content);
-
-    if (matches.isEmpty) {
-      return TextSpan(text: content); // Return plain text if no highlights
-    }
-
-    List<TextSpan> spans = [];
-    int lastMatchEnd = 0;
-
-    for (var match in matches) {
-      if (match.start > lastMatchEnd) {
-        spans.add(TextSpan(
-          text: content.substring(lastMatchEnd, match.start),
-        ));
-      }
-
-      spans.add(TextSpan(
-        text: match.group(1),
-        style: const TextStyle(fontWeight: FontWeight.bold, color: Colors.blue),
-      ));
-
-      lastMatchEnd = match.end;
-    }
-
-    if (lastMatchEnd < content.length) {
-      spans.add(TextSpan(
-        text: content.substring(lastMatchEnd),
-      ));
-    }
-
-    return TextSpan(children: spans);
   }
 }
