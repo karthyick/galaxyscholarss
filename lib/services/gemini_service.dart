@@ -178,6 +178,74 @@ class GeminiService {
     });
   }
 
+  Future<String?> discussIdea({
+    required String board,
+    required int standard,
+    required String subject,
+    required String topic,
+    required String subtopic,
+    required Map<String, dynamic> contentSections,
+    required String idea,
+  }) async {
+    return _retry(() async {
+      if (_apiKey == null) {
+        throw Exception("Gemini API key is not initialized.");
+      }
+
+      // Prepare the request body
+      final requestBody = {
+        "contents": [
+          {
+            "role": "user",
+            "parts": [
+              {
+                "text": """
+I have an idea for discussion. The details are as follows:
+- Board: $board
+- Standard: $standard
+- Subject: $subject
+- Topic: $topic
+- Subtopic: $subtopic
+- Content Sections:
+  Official Definition: ${contentSections["Official Definition"] ?? "Not available"}
+  Layman Explanation: ${contentSections["Layman Explanation"] ?? "Not available"}
+  History: ${contentSections["History"] ?? "Not available"}
+  Current Innovations: ${contentSections["Current Innovations"] ?? "Not available"}
+  Activity: ${contentSections["Activity"] ?? "Not available"}
+  Diagram: ${contentSections["Diagram"] ?? "Not available"}
+- Idea: $idea
+
+Please provide insights, suggestions, and feedback on how this idea can be improved, along with any potential applications or implementations.
+"""
+              },
+            ]
+          }
+        ]
+      };
+
+      final jsonContent = jsonEncode(requestBody);
+      final url =
+          "https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash-latest:generateContent?key=$_apiKey";
+
+      // Make the API call
+      final response = await http.post(
+        Uri.parse(url),
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: jsonContent,
+      );
+
+      if (response.statusCode == 200) {
+        final data = jsonDecode(response.body);
+        final text = data['candidates'][0]['content']['parts'][0]['text'];
+        return text; // Return the response text for the idea discussion
+      } else {
+        throw Exception("Failed to call Gemini API: ${response.body}");
+      }
+    });
+  }
+
   /// Fetch content for the six sections
   Future<Map<String, String>> fetchContent({
     required String board,

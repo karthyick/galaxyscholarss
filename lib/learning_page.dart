@@ -23,6 +23,7 @@ class _LearnersPageState extends State<LearnersPage> {
   String? selectedSubject;
   String? selectedTopic;
   String? selectedSubtopic;
+  String? expandedSection;
 
   bool isLoadingSubjects = true;
   bool isLoadingTopics = false;
@@ -30,7 +31,8 @@ class _LearnersPageState extends State<LearnersPage> {
   bool isLoadingContent = false;
 
   String? error;
-  Map<String, String> contentSections = {}; // Store the six content sections
+  Map<String, dynamic> contentSections = {}; // Store the six content sections
+  String ideaText = ''; // For discussion input
 
   @override
   void initState() {
@@ -331,7 +333,7 @@ class _LearnersPageState extends State<LearnersPage> {
       "Layman Explanation",
       "History",
       "Current Innovations",
-      "Puzzle Activity",
+      "Activity",
       "Diagram",
     ];
 
@@ -360,7 +362,7 @@ class _LearnersPageState extends State<LearnersPage> {
                 const SizedBox(height: 8),
                 Expanded(
                   child: SingleChildScrollView(
-                    child: Text.rich(
+                    child: SelectableText.rich(
                       _parseHighlightedContent(
                           contentSections[section] ?? "No content available."),
                     ),
@@ -447,26 +449,78 @@ class _LearnersPageState extends State<LearnersPage> {
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           const Text(
-            "Idea Builder:",
+            "Idea Discussion:",
             style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
           ),
           const SizedBox(height: 8),
-          const TextField(
-            decoration: InputDecoration(
+          TextField(
+            decoration: const InputDecoration(
               border: OutlineInputBorder(),
               hintText: "Enter your innovative idea...",
             ),
             maxLines: 3,
+            onChanged: (value) {
+              ideaText = value;
+            },
           ),
           const SizedBox(height: 8),
           ElevatedButton(
-            onPressed: () {
-              // Submit idea logic
-            },
-            child: const Text("Submit Idea"),
+            onPressed: _startIdeaDiscussion,
+            child: const Text("Start Discussion"),
           ),
         ],
       ),
     );
+  }
+
+  /// Send idea discussion request to Gemini
+  Future<void> _startIdeaDiscussion() async {
+    if (ideaText.isEmpty) return;
+
+    try {
+      setState(() {
+        isLoadingContent = true;
+        error = null;
+      });
+
+      final response = await _geminiService.discussIdea(
+          board: widget.board,
+          standard: widget.standard,
+          subject: selectedSubject ?? '',
+          topic: selectedTopic ?? '',
+          subtopic: selectedSubtopic ?? '',
+          contentSections: contentSections,
+          idea: ideaText);
+      // Process and display the response
+
+      final responseModified =
+          _parseHighlightedContent(response ?? "No response received.");
+
+      showDialog(
+        context: context,
+        builder: (context) => AlertDialog(
+          title: const Text("Discussion Result"),
+          content: SingleChildScrollView(
+            child: Text(
+              responseModified.toPlainText(),
+            ),
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(context),
+              child: const Text("Close"),
+            ),
+          ],
+        ),
+      );
+    } catch (e) {
+      setState(() {
+        error = e.toString();
+      });
+    } finally {
+      setState(() {
+        isLoadingContent = false;
+      });
+    }
   }
 }
