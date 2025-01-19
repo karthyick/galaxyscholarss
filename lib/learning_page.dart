@@ -328,6 +328,10 @@ class _LearnersPageState extends State<LearnersPage> {
       );
     }
 
+    if (expandedSection != null) {
+      return _buildExpandedSection(context);
+    }
+
     final sections = [
       "Official Definition",
       "Layman Explanation",
@@ -347,32 +351,66 @@ class _LearnersPageState extends State<LearnersPage> {
       itemCount: sections.length,
       itemBuilder: (context, index) {
         final section = sections[index];
-        return Card(
-          elevation: 3,
-          child: Padding(
-            padding: const EdgeInsets.all(16.0),
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text(
-                  section,
-                  style: const TextStyle(
-                      fontSize: 16, fontWeight: FontWeight.bold),
-                ),
-                const SizedBox(height: 8),
-                Expanded(
-                  child: SingleChildScrollView(
-                    child: SelectableText.rich(
-                      _parseHighlightedContent(
-                          contentSections[section] ?? "No content available."),
+        return GestureDetector(
+          onTap: () {
+            setState(() {
+              expandedSection = section;
+            });
+          },
+          child: Card(
+            elevation: 3,
+            child: Padding(
+              padding: const EdgeInsets.all(16.0),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    section,
+                    style: const TextStyle(
+                        fontSize: 16, fontWeight: FontWeight.bold),
+                  ),
+                  const SizedBox(height: 8),
+                  Expanded(
+                    child: SingleChildScrollView(
+                      child: SelectableText.rich(
+                        _parseHighlightedContent(contentSections[section] ??
+                            "No content available."),
+                      ),
                     ),
                   ),
-                ),
-              ],
+                ],
+              ),
             ),
           ),
         );
       },
+    );
+  }
+
+  Widget _buildExpandedSection(BuildContext context) {
+    final content =
+        contentSections[expandedSection!] ?? "No content available.";
+
+    return Scaffold(
+      appBar: AppBar(
+        title: Text(expandedSection!),
+        leading: IconButton(
+          icon: const Icon(Icons.arrow_back),
+          onPressed: () {
+            setState(() {
+              expandedSection = null;
+            });
+          },
+        ),
+      ),
+      body: Padding(
+        padding: const EdgeInsets.all(16.0),
+        child: SingleChildScrollView(
+          child: SelectableText.rich(
+            _parseHighlightedContent(content),
+          ),
+        ),
+      ),
     );
   }
 

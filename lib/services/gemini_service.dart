@@ -200,7 +200,7 @@ class GeminiService {
             "parts": [
               {
                 "text": """
-I have an idea for discussion. The details are as follows:
+These are information. The details are as follows to answer the my idea
 - Board: $board
 - Standard: $standard
 - Subject: $subject
@@ -215,7 +215,7 @@ I have an idea for discussion. The details are as follows:
   Diagram: ${contentSections["Diagram"] ?? "Not available"}
 - Idea: $idea
 
-Please provide insights, suggestions, and feedback on how this idea can be improved, along with any potential applications or implementations.
+Please provide feedback on how this idea can be improved, along with any potential, my idea is $idea, answer for this
 """
               },
             ]
