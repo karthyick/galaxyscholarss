@@ -2,20 +2,34 @@ import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 
 class SecureStorageService {
   static const _storage = FlutterSecureStorage();
-  static const _geminiAccessKey = 'geminiaccesskey'; // Constant key name
+  
+  // Keys
+  static const String _geminiApiKey = 'gemini_api_key';
+  static const String _heygenApiKey = 'heygen_api_key';
 
-  // Save the Gemini API Key
+  // Gemini API Key methods
   static Future<void> saveApiKey(String apiKey) async {
-    await _storage.write(key: _geminiAccessKey, value: apiKey);
+    await _storage.write(key: _geminiApiKey, value: apiKey);
   }
 
-  // Retrieve the Gemini API Key
   static Future<String?> getApiKey() async {
-    return await _storage.read(key: _geminiAccessKey);
+    return await _storage.read(key: _geminiApiKey);
   }
 
-  // Delete the Gemini API Key
   static Future<void> deleteApiKey() async {
-    await _storage.delete(key: _geminiAccessKey);
+    await _storage.delete(key: _geminiApiKey);
+  }
+
+  // Heygen API Key methods
+  static Future<void> saveHeygenApiKey(String apiKey) async {
+    await _storage.write(key: _heygenApiKey, value: apiKey);
+  }
+
+  static Future<String?> getHeygenApiKey() async {
+    return await _storage.read(key: _heygenApiKey);
+  }
+
+  static Future<void> deleteHeygenApiKey() async {
+    await _storage.delete(key: _heygenApiKey);
   }
 }

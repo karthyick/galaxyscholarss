@@ -1,6 +1,8 @@
+import 'widgets/video/heygen_video_player.dart';
 import 'package:flutter/material.dart';
 import 'services/gemini_service.dart';
-
+import 'services/heygen_service.dart'; // We'll create this service for Heygen API
+import 'widgets/video/avatar_voice_selector.dart';
 class LearnersPage extends StatefulWidget {
   final String board;
   final int standard;
@@ -15,8 +17,12 @@ class LearnersPage extends StatefulWidget {
   State<LearnersPage> createState() => _LearnersPageState();
 }
 
-class _LearnersPageState extends State<LearnersPage> {
+class _LearnersPageState extends State<LearnersPage> with SingleTickerProviderStateMixin {
   final GeminiService _geminiService = GeminiService();
+  final HeygenService _heygenService = HeygenService(); // New service for Heygen
+
+  // Tab Controller
+  late TabController _tabController;
 
   Map<String, List<String>> subjectsAndTopics = {};
   Map<String, List<String>> topicsAndSubtopics = {};
@@ -29,15 +35,32 @@ class _LearnersPageState extends State<LearnersPage> {
   bool isLoadingTopics = false;
   bool isLoadingSubtopics = false;
   bool isLoadingContent = false;
+  bool isLoadingVideo = false;
 
   String? error;
   Map<String, dynamic> contentSections = {}; // Store the six content sections
   String ideaText = ''; // For discussion input
+  
+  // Video related properties
+  String? videoUrl;
+  bool videoGenerated = false;
+    /// Generate video using Heygen API with the Official Definition
+  bool _showAvatarSelector = false;
+String? _selectedAvatarId;
+String? _selectedVoiceId;
+
 
   @override
   void initState() {
     super.initState();
+    _tabController = TabController(length: 2, vsync: this);
     _initializeAndFetchSubjects();
+  }
+
+  @override
+  void dispose() {
+    _tabController.dispose();
+    super.dispose();
   }
 
   /// Initialize and fetch all subjects
@@ -152,6 +175,8 @@ class _LearnersPageState extends State<LearnersPage> {
 
       setState(() {
         contentSections = content;
+        videoGenerated = false; // Reset video status when new content is loaded
+        videoUrl = null;
       });
     } catch (e) {
       setState(() {
@@ -164,12 +189,68 @@ class _LearnersPageState extends State<LearnersPage> {
     }
   }
 
+
+// Update the method to accept avatar and voice IDs
+Future<void> _generateVideo(String avatarId, String voiceId) async {
+  if (contentSections.isEmpty || contentSections['Official Definition'] == null) {
+    setState(() {
+      error = "No content available for video generation.";
+    });
+    return;
+  }
+
+  try {
+    setState(() {
+      isLoadingVideo = true;
+      error = null;
+    });
+
+    // Extract the official definition for the script
+    String script = contentSections['Official Definition'] as String;
+    
+    // Estimate: Roughly 150 characters per minute of speech
+    // So for 3 minutes (180 seconds) limit, keep to around 450 characters
+    const int maxCharLimit = 450;
+    
+    if (script.length > maxCharLimit) {
+      script = script.substring(0, maxCharLimit);
+      script += "... (content trimmed to fit within video length limitations)";
+      
+      // Show a warning that content was trimmed
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text("Content was trimmed to fit within the 3-minute video limitation."),
+          duration: Duration(seconds: 5),
+        ),
+      );
+    }
+    
+    // Call Heygen API to generate video with selected avatar and voice
+    final generatedVideoUrl = await _heygenService.generateVideo(
+      script: script,
+      title: "$selectedSubject - $selectedTopic - $selectedSubtopic",
+      avatarId: avatarId,
+      voiceId: voiceId,
+    );
+
+    setState(() {
+      videoUrl = generatedVideoUrl;
+      videoGenerated = true;
+      isLoadingVideo = false;
+    });
+  } catch (e) {
+    setState(() {
+      error = "Video generation error: ${e.toString()}";
+      isLoadingVideo = false;
+    });
+  }
+}
+
   @override
   Widget build(BuildContext context) {
     return Scaffold(
       appBar: AppBar(
-        title:
-            Text('Learning Page - ${widget.board} (Grade ${widget.standard})'),
+        title: Text('Learning Page - ${widget.board} (Grade ${widget.standard})'),
         backgroundColor: Colors.deepPurple,
       ),
       body: isLoadingSubjects
@@ -189,123 +270,192 @@ class _LearnersPageState extends State<LearnersPage> {
     return Column(
       children: [
         _buildTopRow(context),
-        Expanded(child: _buildBody(context)),
+        _buildTabBar(),
+        Expanded(child: _buildTabBarView()),
         _buildBottomRow(context),
       ],
     );
   }
 
-  Widget _buildTopRow(BuildContext context) {
-    return Container(
-      padding: const EdgeInsets.symmetric(vertical: 16.0, horizontal: 8.0),
-      color: Colors.grey[300],
-      child: Row(
-        mainAxisAlignment: MainAxisAlignment.spaceBetween,
+  Widget _buildTabBar() {
+    return TabBar(
+      controller: _tabController,
+      tabs: const [
+        Tab(
+          icon: Icon(Icons.video_library),
+          text: "Video Explanation",
+        ),
+        Tab(
+          icon: Icon(Icons.menu_book),
+          text: "Content Sections",
+        ),
+      ],
+      labelColor: Colors.deepPurple,
+      unselectedLabelColor: Colors.grey,
+    );
+  }
+
+  Widget _buildTabBarView() {
+    return TabBarView(
+      controller: _tabController,
+      children: [
+        _buildVideoTab(),
+        _buildContentTab(),
+      ],
+    );
+  }
+
+ Widget _buildVideoTab() {
+  if (selectedSubtopic == null) {
+    return const Center(
+      child: Text(
+        'Please select a subject, topic, and subtopic.',
+        style: TextStyle(fontSize: 16),
+      ),
+    );
+  }
+
+  if (isLoadingVideo) {
+    return const Center(
+      child: Column(
+        mainAxisAlignment: MainAxisAlignment.center,
         children: [
-          Expanded(
-            flex: 2,
-            child: Text(
-              "Welcome to ${widget.board.toUpperCase()} (Grade ${widget.standard})",
-              style: const TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
-            ),
-          ),
-          const SizedBox(width: 16),
-          Expanded(
-            flex: 1,
-            child: DropdownButton<String>(
-              isExpanded: true,
-              hint: const Text('Select Subject'),
-              value: selectedSubject,
-              items: subjectsAndTopics.keys
-                  .map((subject) => DropdownMenuItem<String>(
-                        value: subject,
-                        child: Text(subject),
-                      ))
-                  .toList(),
-              onChanged: (value) {
-                setState(() {
-                  selectedSubject = value;
-                  selectedTopic = null; // Reset topic
-                  selectedSubtopic = null; // Reset subtopic
-                  contentSections.clear(); // Clear previous content
-                });
-                if (value != null) {
-                  _fetchTopics(value);
-                }
-              },
-            ),
-          ),
-          const SizedBox(width: 16),
-          Expanded(
-            flex: 1,
-            child: DropdownButton<String>(
-              isExpanded: true,
-              hint: const Text('Select Topic'),
-              value: selectedTopic,
-              items: (selectedSubject != null
-                      ? subjectsAndTopics[selectedSubject] ?? []
-                      : [])
-                  .map((topic) => DropdownMenuItem<String>(
-                        value: topic,
-                        child: Text(topic),
-                      ))
-                  .toList(),
-              onChanged: (value) {
-                setState(() {
-                  selectedTopic = value;
-                  selectedSubtopic = null; // Reset subtopic
-                  contentSections.clear(); // Clear previous content
-                });
-                if (value != null) {
-                  _fetchSubtopics(value);
-                }
-              },
-            ),
-          ),
-          const SizedBox(width: 16),
-          Expanded(
-            flex: 1,
-            child: DropdownButton<String>(
-              isExpanded: true,
-              hint: const Text('Select Subtopic'),
-              value: selectedSubtopic,
-              items: (selectedTopic != null
-                      ? topicsAndSubtopics[selectedTopic] ?? []
-                      : [])
-                  .map((subtopic) => DropdownMenuItem<String>(
-                        value: subtopic,
-                        child: Text(subtopic),
-                      ))
-                  .toList(),
-              onChanged: (value) {
-                setState(() {
-                  selectedSubtopic = value;
-                  contentSections.clear(); // Clear previous content
-                });
-                if (value != null) {
-                  _fetchContent();
-                }
-              },
-            ),
-          ),
-          const SizedBox(width: 16),
-          ElevatedButton(
-            onPressed: () {
-              setState(() {
-                selectedSubject = null;
-                selectedTopic = null;
-                selectedSubtopic = null;
-                contentSections.clear();
-              });
-            },
-            child: const Text('Reset'),
-          ),
+          CircularProgressIndicator(),
+          SizedBox(height: 16),
+          Text("Generating video... This may take a minute or two."),
         ],
       ),
     );
   }
 
-  Widget _buildBody(BuildContext context) {
+  if (!videoGenerated) {
+    // Show avatar and voice selection if not yet generated
+    if (_showAvatarSelector) {
+      return AvatarVoiceSelector(
+        heygenService: _heygenService, 
+        onSelectionComplete: (avatarId, voiceId) {
+          setState(() {
+            _selectedAvatarId = avatarId;
+            _selectedVoiceId = voiceId;
+            _showAvatarSelector = false;
+          });
+        },
+      );
+    }
+    
+    return Center(
+      child: Column(
+        mainAxisAlignment: MainAxisAlignment.center,
+        children: [
+          const Text(
+            'Generate a video explanation using Heygen AI',
+            style: TextStyle(fontSize: 16),
+          ),
+          const SizedBox(height: 20),
+          Row(
+            mainAxisAlignment: MainAxisAlignment.center,
+            children: [
+              ElevatedButton.icon(
+                icon: const Icon(Icons.person),
+                label: const Text("Select Avatar & Voice"),
+                onPressed: contentSections.isEmpty 
+                    ? null 
+                    : () {
+                        setState(() {
+                          _showAvatarSelector = true;
+                        });
+                      },
+                style: ElevatedButton.styleFrom(
+                  padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+                ),
+              ),
+              const SizedBox(width: 16),
+              ElevatedButton.icon(
+                icon: const Icon(Icons.video_call),
+                label: const Text("Generate Video"),
+                onPressed: contentSections.isEmpty || _selectedAvatarId == null || _selectedVoiceId == null
+                    ? null 
+                    : () => _generateVideo(_selectedAvatarId!, _selectedVoiceId!),
+                style: ElevatedButton.styleFrom(
+                  padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+                ),
+              ),
+            ],
+          ),
+          if (_selectedAvatarId != null && _selectedVoiceId != null) ...[
+            const SizedBox(height: 16),
+            Container(
+              padding: const EdgeInsets.all(8),
+              decoration: BoxDecoration(
+                color: Colors.green.shade50,
+                borderRadius: BorderRadius.circular(8),
+                border: Border.all(color: Colors.green.shade200),
+              ),
+              child: const Row(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Icon(Icons.check_circle, color: Colors.green),
+                  SizedBox(width: 8),
+                  Text("Avatar and voice selected"),
+                ],
+              ),
+            ),
+          ],
+        ],
+      ),
+    );
+  }
+
+  return Center(
+    child: Column(
+      mainAxisAlignment: MainAxisAlignment.center,
+      children: [
+        Container(
+          width: double.infinity,
+          height: 400,
+          padding: const EdgeInsets.all(16),
+          child: videoUrl != null ? 
+            HeygenVideoPlayer(videoUrl: videoUrl!, autoPlay: true) 
+            : const Center(child: Text("Video not available")),
+        ),
+        const SizedBox(height: 16),
+        Row(
+          mainAxisAlignment: MainAxisAlignment.center,
+          children: [
+            ElevatedButton.icon(
+              icon: const Icon(Icons.person),
+              label: const Text("Change Avatar"),
+              onPressed: () {
+                setState(() {
+                  _showAvatarSelector = true;
+                });
+              },
+            ),
+            const SizedBox(width: 16),
+            ElevatedButton.icon(
+              icon: const Icon(Icons.refresh),
+              label: const Text("Regenerate Video"),
+              onPressed: _selectedAvatarId != null && _selectedVoiceId != null 
+                  ? () => _generateVideo(_selectedAvatarId!, _selectedVoiceId!)
+                  : null,
+            ),
+          ],
+        ),
+      ],
+    ),
+  );
+}
+
+  
+  // Widget for video player - would integrate with a video player package
+  Widget _buildVideoPlayer(String url) {
+  return HeygenVideoPlayer(
+    videoUrl: url,
+    autoPlay: true,
+  );
+}
+
+  Widget _buildContentTab() {
     if (selectedSubtopic == null) {
       return const Center(
         child: Text(
@@ -384,6 +534,124 @@ class _LearnersPageState extends State<LearnersPage> {
           ),
         );
       },
+    );
+  }
+
+  Widget _buildTopRow(BuildContext context) {
+    return Container(
+      padding: const EdgeInsets.symmetric(vertical: 16.0, horizontal: 8.0),
+      color: Colors.grey[300],
+      child: Row(
+        mainAxisAlignment: MainAxisAlignment.spaceBetween,
+        children: [
+          Expanded(
+            flex: 2,
+            child: Text(
+              "Welcome to ${widget.board.toUpperCase()} (Grade ${widget.standard})",
+              style: const TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
+            ),
+          ),
+          const SizedBox(width: 16),
+          Expanded(
+            flex: 1,
+            child: DropdownButton<String>(
+              isExpanded: true,
+              hint: const Text('Select Subject'),
+              value: selectedSubject,
+              items: subjectsAndTopics.keys
+                  .map((subject) => DropdownMenuItem<String>(
+                        value: subject,
+                        child: Text(subject),
+                      ))
+                  .toList(),
+              onChanged: (value) {
+                setState(() {
+                  selectedSubject = value;
+                  selectedTopic = null; // Reset topic
+                  selectedSubtopic = null; // Reset subtopic
+                  contentSections.clear(); // Clear previous content
+                  videoUrl = null;
+                  videoGenerated = false;
+                });
+                if (value != null) {
+                  _fetchTopics(value);
+                }
+              },
+            ),
+          ),
+          const SizedBox(width: 16),
+          Expanded(
+            flex: 1,
+            child: DropdownButton<String>(
+              isExpanded: true,
+              hint: const Text('Select Topic'),
+              value: selectedTopic,
+              items: (selectedSubject != null
+                      ? subjectsAndTopics[selectedSubject] ?? []
+                      : [])
+                  .map((topic) => DropdownMenuItem<String>(
+                        value: topic,
+                        child: Text(topic),
+                      ))
+                  .toList(),
+              onChanged: (value) {
+                setState(() {
+                  selectedTopic = value;
+                  selectedSubtopic = null; // Reset subtopic
+                  contentSections.clear(); // Clear previous content
+                  videoUrl = null;
+                  videoGenerated = false;
+                });
+                if (value != null) {
+                  _fetchSubtopics(value);
+                }
+              },
+            ),
+          ),
+          const SizedBox(width: 16),
+          Expanded(
+            flex: 1,
+            child: DropdownButton<String>(
+              isExpanded: true,
+              hint: const Text('Select Subtopic'),
+              value: selectedSubtopic,
+              items: (selectedTopic != null
+                      ? topicsAndSubtopics[selectedTopic] ?? []
+                      : [])
+                  .map((subtopic) => DropdownMenuItem<String>(
+                        value: subtopic,
+                        child: Text(subtopic),
+                      ))
+                  .toList(),
+              onChanged: (value) {
+                setState(() {
+                  selectedSubtopic = value;
+                  contentSections.clear(); // Clear previous content
+                  videoUrl = null;
+                  videoGenerated = false;
+                });
+                if (value != null) {
+                  _fetchContent();
+                }
+              },
+            ),
+          ),
+          const SizedBox(width: 16),
+          ElevatedButton(
+            onPressed: () {
+              setState(() {
+                selectedSubject = null;
+                selectedTopic = null;
+                selectedSubtopic = null;
+                contentSections.clear();
+                videoUrl = null;
+                videoGenerated = false;
+              });
+            },
+            child: const Text('Reset'),
+          ),
+        ],
+      ),
     );
   }
 

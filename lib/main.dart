@@ -2,8 +2,12 @@ import 'package:flutter/material.dart';
 import 'learning_page.dart';
 import 'services/secure_storage_service.dart';
 import 'services/sqlite_service.dart';
+import 'services/heygen_service.dart'; // Import the Heygen service
 
 void main() async {
+  // Ensure Flutter is initialized
+  WidgetsFlutterBinding.ensureInitialized();
+  
   // TODO Database
   // Initialize SQLite database
   // final sqliteService = SQLiteService();
@@ -36,22 +40,31 @@ class HomeScreen extends StatefulWidget {
 class _HomeScreenState extends State<HomeScreen> {
   String? selectedBoard;
   int? selectedStandard;
+  final HeygenService _heygenService = HeygenService(); // Create Heygen service
+  bool _isTestingHeygenKey = false;
 
   @override
   void initState() {
     super.initState();
-    _checkApiKey();
+    _checkApiKeys();
   }
 
-  Future<void> _checkApiKey() async {
-    final apiKey = await SecureStorageService.getApiKey();
-
-    if (apiKey == null || apiKey.isEmpty) {
-      _promptForApiKey();
+  // Check both Gemini and Heygen API keys
+  Future<void> _checkApiKeys() async {
+    // Check Gemini API Key
+    final geminiApiKey = await SecureStorageService.getApiKey();
+    if (geminiApiKey == null || geminiApiKey.isEmpty) {
+      _promptForGeminiApiKey();
+    }
+    
+    // Check Heygen API Key
+    final heygenApiKey = await _heygenService.getApiKey();
+    if (heygenApiKey == null || heygenApiKey.isEmpty) {
+      _promptForHeygenApiKey();
     }
   }
 
-  void _promptForApiKey({String? previousKey}) {
+  void _promptForGeminiApiKey({String? previousKey}) {
     final TextEditingController apiKeyController =
         TextEditingController(text: previousKey);
 
@@ -60,12 +73,12 @@ class _HomeScreenState extends State<HomeScreen> {
       barrierDismissible: false,
       builder: (context) {
         return AlertDialog(
-          title: const Text("API Key Required"),
+          title: const Text("Gemini API Key Required"),
           content: TextField(
             controller: apiKeyController,
             decoration: InputDecoration(
               labelText: "Enter Gemini API Key",
-              hintText: "e.g., your-api-key",
+              hintText: "e.g., AIzaSyC...",
               helperText:
                   previousKey != null ? "Previous Key: $previousKey" : null,
             ),
@@ -75,7 +88,7 @@ class _HomeScreenState extends State<HomeScreen> {
               onPressed: () {
                 Navigator.of(context).pop();
                 if (previousKey == null)
-                  _promptForApiKey(); // Reprompt if user cancels during initial setup
+                  _promptForGeminiApiKey(); // Reprompt if user cancels during initial setup
               },
               child: const Text("Cancel"),
             ),
@@ -85,6 +98,12 @@ class _HomeScreenState extends State<HomeScreen> {
                 if (enteredKey.isNotEmpty) {
                   await SecureStorageService.saveApiKey(enteredKey);
                   Navigator.of(context).pop();
+                  
+                  // After setting Gemini key, check Heygen key
+                  final heygenApiKey = await _heygenService.getApiKey();
+                  if (heygenApiKey == null || heygenApiKey.isEmpty) {
+                    _promptForHeygenApiKey();
+                  }
                 } else {
                   ScaffoldMessenger.of(context).showSnackBar(
                     const SnackBar(
@@ -101,17 +120,202 @@ class _HomeScreenState extends State<HomeScreen> {
     );
   }
 
-  void _resetApiKey() async {
+  // New method to prompt for Heygen API key with validation
+ // Inside the _promptForHeygenApiKey method in main.dart, replace the API key validation dialog:
+
+void _promptForHeygenApiKey({String? previousKey}) {
+  final TextEditingController apiKeyController =
+      TextEditingController(text: previousKey);
+
+  showDialog(
+    context: context,
+    barrierDismissible: false,
+    builder: (context) {
+      return StatefulBuilder(
+        builder: (context, setState) {
+          return AlertDialog(
+            title: const Text("Heygen API Key Required"),
+            content: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                TextField(
+                  controller: apiKeyController,
+                  decoration: InputDecoration(
+                    labelText: "Enter Heygen API Key",
+                    hintText: "Format: Base64-encoded string",
+                    helperText:
+                        previousKey != null ? "Previous Key: $previousKey" : null,
+                    prefixIcon: const Icon(Icons.key),
+                  ),
+                ),
+                const SizedBox(height: 16),
+                const Text(
+                  "1. Go to https://studio.heygen.com/settings/api-keys",
+                  style: TextStyle(fontSize: 12, color: Colors.grey),
+                ),
+                const SizedBox(height: 4),
+                const Text(
+                  "2. Create a new API key with video generation permissions",
+                  style: TextStyle(fontSize: 12, color: Colors.grey),
+                ),
+                const SizedBox(height: 4),
+                const Text(
+                  "3. Copy the entire API key",
+                  style: TextStyle(fontSize: 12, color: Colors.grey),
+                ),
+                if (_isTestingHeygenKey)
+                  Padding(
+                    padding: const EdgeInsets.only(top: 16),
+                    child: Row(
+                      children: const [
+                        SizedBox(
+                          width: 16,
+                          height: 16,
+                          child: CircularProgressIndicator(strokeWidth: 2),
+                        ),
+                        SizedBox(width: 8),
+                        Text("Validating API key...", style: TextStyle(fontSize: 12)),
+                      ],
+                    ),
+                  ),
+              ],
+            ),
+            actions: [
+              TextButton(
+                onPressed: () {
+                  Navigator.of(context).pop();
+                  if (previousKey == null)
+                    _promptForHeygenApiKey(); // Reprompt if user cancels during initial setup
+                },
+                child: const Text("Cancel"),
+              ),
+              ElevatedButton(
+                onPressed: _isTestingHeygenKey ? null : () async {
+                  final enteredKey = apiKeyController.text.trim();
+                  if (enteredKey.isEmpty) {
+                    ScaffoldMessenger.of(context).showSnackBar(
+                      const SnackBar(
+                        content: Text("API Key cannot be empty."),
+                      ),
+                    );
+                    return;
+                  }
+                  
+                  // Basic validation - just check that it's a reasonable length and format
+                  if (enteredKey.length < 20) {
+                    ScaffoldMessenger.of(context).showSnackBar(
+                      const SnackBar(
+                        content: Text("API key seems too short. Please check your key."),
+                      ),
+                    );
+                    return;
+                  }
+                  
+                  // Test the API key
+                  setState(() => _isTestingHeygenKey = true);
+                  
+                  final isValid = await _heygenService.isApiKeyValid(enteredKey);
+                  
+                  if (isValid) {
+                    await _heygenService.saveApiKey(enteredKey);
+                    Navigator.of(context).pop();
+                    ScaffoldMessenger.of(context).showSnackBar(
+                      const SnackBar(
+                        content: Text("Heygen API Key verified and saved successfully."),
+                      ),
+                    );
+                  } else {
+                    ScaffoldMessenger.of(context).showSnackBar(
+                      const SnackBar(
+                        content: Text("Invalid Heygen API key. Please check your key and try again."),
+                        duration: Duration(seconds: 4),
+                      ),
+                    );
+                    setState(() => _isTestingHeygenKey = false);
+                  }
+                },
+                child: const Text("Verify & Save"),
+              ),
+            ],
+          );
+        }
+      );
+    },
+  );
+}
+
+  // Method to reset both API keys
+  void _resetApiKeys() {
+    showDialog(
+      context: context,
+      builder: (context) {
+        return AlertDialog(
+          title: const Text("API Settings"),
+          content: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              const Text("Choose which API key to manage:"),
+              const SizedBox(height: 16),
+              ListTile(
+                leading: const Icon(Icons.api, color: Colors.blue),
+                title: const Text("Gemini API Key"),
+                subtitle: const Text("Used for content generation"),
+                trailing: const Icon(Icons.edit),
+                onTap: () {
+                  Navigator.pop(context);
+                  _resetGeminiApiKey();
+                },
+              ),
+              const Divider(),
+              ListTile(
+                leading: const Icon(Icons.video_library, color: Colors.green),
+                title: const Text("Heygen API Key"),
+                subtitle: const Text("Used for video generation"),
+                trailing: const Icon(Icons.edit),
+                onTap: () {
+                  Navigator.pop(context);
+                  _resetHeygenApiKey();
+                },
+              ),
+            ],
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(context),
+              child: const Text("Cancel"),
+            ),
+          ],
+        );
+      },
+    );
+  }
+
+  void _resetGeminiApiKey() async {
     final previousKey = await SecureStorageService.getApiKey();
 
     // Delete the previous key and prompt for a new one
     await SecureStorageService.deleteApiKey();
     ScaffoldMessenger.of(context).showSnackBar(
       const SnackBar(
-        content: Text("API Key has been reset. Please enter a new one."),
+        content: Text("Gemini API Key has been reset. Please enter a new one."),
       ),
     );
-    _promptForApiKey(previousKey: previousKey); // Show the previous key
+    _promptForGeminiApiKey(previousKey: previousKey); // Show the previous key
+  }
+
+  // New method to reset Heygen API key
+  void _resetHeygenApiKey() async {
+    final previousKey = await _heygenService.getApiKey();
+
+    // Delete the previous key and prompt for a new one
+    await _heygenService.deleteApiKey();
+    ScaffoldMessenger.of(context).showSnackBar(
+      const SnackBar(
+        content: Text("Heygen API Key has been reset. Please enter a new one."),
+      ),
+    );
+    _promptForHeygenApiKey(previousKey: previousKey); // Show the previous key
   }
 
   @override
@@ -121,9 +325,9 @@ class _HomeScreenState extends State<HomeScreen> {
         title: const Text('GalaxyScholars'),
         actions: [
           IconButton(
-            icon: const Icon(Icons.refresh),
-            tooltip: 'Reset API Key',
-            onPressed: _resetApiKey,
+            icon: const Icon(Icons.settings),
+            tooltip: 'API Settings',
+            onPressed: _resetApiKeys,
           ),
         ],
       ),
