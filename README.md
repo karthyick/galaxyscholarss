@@ -54,7 +54,7 @@ flutter run --release
 
 
 📁 Project Structure
-
+```
 galaxyscholarss/
 ├── android/              # Android-specific files
 ├── ios/                  # iOS-specific files
@@ -93,6 +93,7 @@ galaxyscholarss/
 │   ├── fonts/
 │   └── animations/
 └── pubspec.yaml
+```
 
 🤝 Contributing
 # Fork and create your feature branch
